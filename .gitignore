@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 .env
+.DS_Store
 data/*.db
 data/output/*
 !data/output/.gitkeep
