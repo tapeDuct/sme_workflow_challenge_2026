@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     smtp_user: str = ""
     smtp_password: str = ""
     hitl_approval_email: str = ""
+    email_simulation_mode: bool = True
 
     # App
     database_url: str = "sqlite:///data/app.db"

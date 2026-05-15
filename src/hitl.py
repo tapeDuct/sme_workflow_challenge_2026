@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import smtplib
 import uuid
+from datetime import datetime, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any
@@ -16,7 +19,9 @@ class EmailHandler:
         self.smtp_password = settings.smtp_password
         self.approval_email = settings.hitl_approval_email
         self.base_url = "http://localhost:8000"
+        self.simulation_mode = settings.email_simulation_mode
         self._sessions: dict[str, dict[str, Any]] = {}
+        self._inbox: list[dict[str, Any]] = []
 
     def _connect(self) -> smtplib.SMTP:
         server = smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=10)
@@ -35,9 +40,24 @@ class EmailHandler:
         }
 
         body_html = self._render_email(request, approve_url, reject_url)
+        subject = f"[Action Required] Workflow Review — {request.task_type} (Task #{request.task_id})"
+
+        if self.simulation_mode:
+            self._inbox.append({
+                "session_id": session_id,
+                "task_id": request.task_id,
+                "task_type": request.task_type,
+                "subject": subject,
+                "confidence": request.confidence_score,
+                "status": "pending",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "body_html": body_html,
+            })
+            print(f"[HITL SIMULATION] Review request for Task #{request.task_id} — session: {session_id}")
+            return session_id
 
         msg = MIMEMultipart("alternative")
-        msg["Subject"] = f"[Action Required] Workflow Review — {request.task_type} (Task #{request.task_id})"
+        msg["Subject"] = subject
         msg["From"] = self.smtp_user
         msg["To"] = self.approval_email
         msg.attach(MIMEText(body_html, "html"))
@@ -52,10 +72,23 @@ class EmailHandler:
         return session_id
 
     def process_response(self, session_id: str, decision: str, task_id: int) -> ApprovalResponse:
+        for item in self._inbox:
+            if item["session_id"] == session_id:
+                item["status"] = decision
+                break
         return ApprovalResponse(
             task_id=task_id,
             decision=decision,
         )
+
+    def get_inbox(self) -> list[dict[str, Any]]:
+        return sorted(self._inbox, key=lambda x: x["created_at"], reverse=True)
+
+    def get_email(self, session_id: str) -> dict[str, Any] | None:
+        for item in self._inbox:
+            if item["session_id"] == session_id:
+                return item
+        return None
 
     def _render_email(self, request: ApprovalRequest, approve_url: str, reject_url: str) -> str:
         low_conf_section = ""

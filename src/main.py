@@ -163,6 +163,19 @@ async def run_task(task_id: int):
 # Human-in-the-Loop endpoints
 # ---------------------------------------------------------------------------
 
+@app.get("/hitl/inbox")
+async def hitl_inbox():
+    return {"inbox": email_handler.get_inbox()}
+
+
+@app.get("/hitl/email/{session_id}", response_class=HTMLResponse)
+async def hitl_view_email(session_id: str):
+    email = email_handler.get_email(session_id)
+    if not email:
+        raise HTTPException(status_code=404, detail="Email not found")
+    return email["body_html"]
+
+
 @app.get("/hitl/email-approve/{session_id}")
 async def email_approve(session_id: str, task_id: int, corrections: str | None = None):
     email_handler.process_response(session_id, "approve", task_id)

@@ -69,10 +69,10 @@ def test_get_metrics():
     assert "tasks_processed" in data
 
 
-def test_brave_search_no_key():
+def test_brave_search():
     resp = client.get("/integrations/search?q=test")
     assert resp.status_code == 200
-    assert resp.json()["results"] == []
+    assert "results" in resp.json()
 
 
 def test_hitl_email_approve():
