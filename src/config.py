@@ -33,6 +33,13 @@ class Settings(BaseSettings):
     extraction_confidence_threshold: float = 0.85
     max_auto_retries: int = 3
 
+    # Google Drive folders
+    drive_root_folder: str = ""
+    drive_drop_csv_folder: str = ""
+    drive_archive_combined_folder: str = ""
+    drive_archive_csv_folder: str = ""
+    drive_reports_folder: str = ""
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 

@@ -13,8 +13,9 @@ from pydantic import BaseModel
 from src.ai import assurance
 from src.combine import merge_sheets, get_unique_categories
 from src.comments import CommentManager
+from src.config import settings
 from src.db import init_db, create_task, update_task, get_task, get_tasks
-from src.google_sheets import sheets_client
+from src.google_sheets import sheets_client, drive_manager
 from src.hitl import email_handler
 from src.ingestion import (
     parse_file,
@@ -352,34 +353,6 @@ async def combine_files(req: CombineRequest):
     }
 
 
-@app.post("/pipeline/combine/write")
-async def combine_and_write(req: CombineRequest):
-    for path in req.file_paths:
-        if not Path(path).exists():
-            raise HTTPException(status_code=404, detail=f"File not found: {path}")
-
-    master = merge_sheets(req.file_paths)
-    normalizer.load_corrections(req.corrections_reference)
-    master = normalizer.apply_global_corrections(master)
-
-    result = sheets_client.create_spreadsheet("Master Table — The Social Space")
-    sheet_id = result["spreadsheet_id"]
-
-    headers = list(master.columns)
-    rows = master.fillna("").values.tolist()
-    data_rows = [[str(v) for v in row] for row in rows]
-
-    sheets_client.write_data(sheet_id, "A1", [headers] + data_rows, "Master")
-    sheets_client.format_header(sheet_id)
-
-    return {
-        "spreadsheet_id": sheet_id,
-        "url": result["url"],
-        "rows_written": len(data_rows),
-        "categories": get_unique_categories(master),
-    }
-
-
 class ReviewRequest(BaseModel):
     spreadsheet_id: str
     sheet_id: int = 0
@@ -443,6 +416,81 @@ async def get_review_comments(spreadsheet_id: str, sheet_id: int = 0):
     return {"comments": comments, "count": len(comments)}
 
 
+def _find_column_index(headers: list[str], col_name: str) -> int:
+    for i, h in enumerate(headers):
+        if h == col_name or h.lower() == col_name.lower():
+            return i
+    return -1
+
+
+# ---------------------------------------------------------------------------
+# Drive folder management
+# ---------------------------------------------------------------------------
+
+@app.post("/drive/setup")
+async def setup_drive_folders():
+    folders = drive_manager.setup_folders()
+    return {
+        "status": "created",
+        "folders": folders,
+        "root_url": f"https://drive.google.com/drive/folders/{folders['root']}",
+    }
+
+
+@app.get("/drive/files/drop")
+async def list_drop_files():
+    drop_id = settings.drive_drop_csv_folder
+    if not drop_id:
+        raise HTTPException(status_code=400, detail="Drive folders not configured. Run POST /drive/setup")
+    files = drive_manager.list_files_in_folder(drop_id)
+    return {"folder": "Add CSV for Processing", "files": files, "count": len(files)}
+
+
+@app.get("/drive/files/reports")
+async def list_report_files():
+    reports_id = settings.drive_reports_folder
+    if not reports_id:
+        raise HTTPException(status_code=400, detail="Drive folders not configured")
+    files = drive_manager.list_files_in_folder(reports_id)
+    return {"folder": "Reports", "files": files, "count": len(files)}
+
+
+# Update: move combined sheet to archive after creation
+@app.post("/pipeline/combine/write")
+async def combine_and_write(req: CombineRequest):
+    for path in req.file_paths:
+        if not Path(path).exists():
+            raise HTTPException(status_code=404, detail=f"File not found: {path}")
+
+    master = merge_sheets(req.file_paths)
+    normalizer.load_corrections(req.corrections_reference)
+    master = normalizer.apply_global_corrections(master)
+
+    result = sheets_client.create_spreadsheet("Master Table — The Social Space")
+    sheet_id = result["spreadsheet_id"]
+
+    headers = list(master.columns)
+    rows = master.fillna("").values.tolist()
+    data_rows = [[str(v) for v in row] for row in rows]
+
+    sheets_client.write_data(sheet_id, "A1", [headers] + data_rows, "Master")
+    sheets_client.format_header(sheet_id)
+
+    # Move to Archive Combined Files folder
+    archive_id = settings.drive_archive_combined_folder
+    if archive_id:
+        drive_manager.move_spreadsheet_to_folder(sheet_id, archive_id)
+
+    return {
+        "spreadsheet_id": sheet_id,
+        "url": result["url"],
+        "rows_written": len(data_rows),
+        "categories": get_unique_categories(master),
+        "archived": bool(archive_id),
+    }
+
+
+# Update: generate reports into dated subfolder
 @app.post("/pipeline/reports/generate")
 async def generate_reports(spreadsheet_id: str, category_col: str = "item_category"):
     from src.reports import generate_legacy_report, generate_recommended_report, get_partner_summary
@@ -459,10 +507,17 @@ async def generate_reports(spreadsheet_id: str, category_col: str = "item_catego
     df = df.replace("", pd.NA)
 
     groups = group_by_category(df, category_col)
+
+    # Create dated subfolder inside Reports
+    reports_parent = settings.drive_reports_folder
+    dated_folder_id = None
+    if reports_parent:
+        dated_folder_id = drive_manager.create_dated_folder(reports_parent, "Reports_")
+
     reports_created = []
 
-    for category, partner_df in list(groups.items())[:5]:
-        if not category or category in ("nan", "None", ""):
+    for category, partner_df in list(groups.items())[:50]:
+        if not category or str(category) in ("nan", "None", ""):
             continue
 
         legacy_headers, legacy_rows = generate_legacy_report(partner_df, str(category))
@@ -486,6 +541,10 @@ async def generate_reports(spreadsheet_id: str, category_col: str = "item_catego
             )
             sheets_client.format_header(result["spreadsheet_id"])
 
+        # Move report into dated subfolder
+        if dated_folder_id:
+            drive_manager.move_spreadsheet_to_folder(result["spreadsheet_id"], dated_folder_id)
+
         summary = get_partner_summary(partner_df, str(category))
         reports_created.append({
             "partner": str(category),
@@ -495,17 +554,12 @@ async def generate_reports(spreadsheet_id: str, category_col: str = "item_catego
 
     return {
         "reports_created": len(reports_created),
+        "reports_folder": f"https://drive.google.com/drive/folders/{dated_folder_id}" if dated_folder_id else None,
         "reports": reports_created,
     }
 
 
-def _find_column_index(headers: list[str], col_name: str) -> int:
-    for i, h in enumerate(headers):
-        if h == col_name or h.lower() == col_name.lower():
-            return i
-    return -1
-
-
+# Remove old endpoint wrapper — now handled above
 # ---------------------------------------------------------------------------
 # Metrics & summary
 # ---------------------------------------------------------------------------

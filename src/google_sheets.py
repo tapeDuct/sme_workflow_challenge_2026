@@ -12,6 +12,7 @@ from googleapiclient.errors import HttpError
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive.file",
+    "https://www.googleapis.com/auth/drive.readonly",
 ]
 
 
@@ -138,4 +139,76 @@ class GoogleSheetsClient:
         return f'=HYPERLINK("{url}", "{text}")'
 
 
+class DriveManager:
+    """Manages Google Drive folders and file operations."""
+
+    def __init__(self, sheets_client: GoogleSheetsClient):
+        self.sheets = sheets_client
+
+    def _get_drive_service(self):
+        creds = _load_credentials(self.sheets.credentials_path, self.sheets.token_path)
+        return build("drive", "v3", credentials=creds)
+
+    def setup_folders(self, root_name: str = "The Social Space — Workflow") -> dict[str, str]:
+        """Create the full folder hierarchy. Returns folder IDs keyed by name."""
+        drive = self._get_drive_service()
+        root_id = self._find_or_create(drive, root_name)
+        folders = {
+            "Add CSV for Processing": (root_id, None),
+            "Archive Combined Files": (root_id, None),
+            "Archive CSV": (root_id, None),
+            "Reports": (root_id, None),
+        }
+        result = {"root": root_id}
+        for name, (parent, _) in folders.items():
+            fid = self._find_or_create(drive, name, parent)
+            result[name] = fid
+        return result
+
+    def _find_or_create(self, drive, name: str, parent_id: str = None) -> str:
+        query = f"name='{name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
+        if parent_id:
+            query += f" and '{parent_id}' in parents"
+        existing = drive.files().list(q=query, fields="files(id)", pageSize=1).execute()
+        if existing.get("files"):
+            return existing["files"][0]["id"]
+
+        body = {"name": name, "mimeType": "application/vnd.google-apps.folder"}
+        if parent_id:
+            body["parents"] = [parent_id]
+        return drive.files().create(body=body, fields="id").execute()["id"]
+
+    def create_dated_folder(self, parent_id: str, prefix: str = "") -> str:
+        """Create a folder named YYYY-MM-DD inside parent_id."""
+        from datetime import date
+        name = f"{prefix}{date.today().isoformat()}" if prefix else date.today().isoformat()
+        drive = self._get_drive_service()
+        return self._find_or_create(drive, name, parent_id)
+
+    def move_file_to_folder(self, file_id: str, folder_id: str) -> None:
+        """Move a Drive file to a folder."""
+        drive = self._get_drive_service()
+        file = drive.files().get(fileId=file_id, fields="parents").execute()
+        prev_parents = ",".join(file.get("parents", []))
+        drive.files().update(
+            fileId=file_id,
+            addParents=folder_id,
+            removeParents=prev_parents,
+            fields="id, parents",
+        ).execute()
+
+    def move_spreadsheet_to_folder(self, spreadsheet_id: str, folder_id: str) -> None:
+        """Move a Google Sheet into a Drive folder."""
+        self.move_file_to_folder(spreadsheet_id, folder_id)
+
+    def list_files_in_folder(self, folder_id: str) -> list[dict]:
+        """List non-trashed files in a Drive folder."""
+        drive = self._get_drive_service()
+        query = f"'{folder_id}' in parents and trashed=false"
+        results = drive.files().list(q=query, fields="files(id, name, mimeType, webViewLink)", pageSize=100).execute()
+        return results.get("files", [])
+
+
 sheets_client = GoogleSheetsClient()
+drive_manager = DriveManager(sheets_client)
+
