@@ -5,6 +5,7 @@ __pycache__/
 data/*.db
 data/google-token.json
 data/google-credentials.json
+data/test_csvs/
 *.bak
 data/output/*
 !data/output/.gitkeep

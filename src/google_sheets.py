@@ -12,8 +12,19 @@ from googleapiclient.errors import HttpError
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive.file",
-    "https://www.googleapis.com/auth/drive.readonly",
 ]
+
+
+def _sanitize_value(v: Any) -> str:
+    import math
+    if v is None:
+        return ""
+    if isinstance(v, float):
+        if math.isnan(v) or math.isinf(v):
+            return ""
+    if isinstance(v, str) and v.lower() in ("nan", "none", "nat"):
+        return ""
+    return str(v)
 
 
 def _load_credentials(creds_path: str, token_path: str) -> Credentials:
@@ -89,7 +100,9 @@ class GoogleSheetsClient:
                 pass
             range_name = f"'{sheet_name}'!{range_name}"
 
-        body = {"values": values}
+        sanitized = [[_sanitize_value(v) for v in row] for row in values]
+
+        body = {"values": sanitized}
         result = (
             service.spreadsheets()
             .values()
