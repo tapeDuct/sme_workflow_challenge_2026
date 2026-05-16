@@ -1,0 +1,13 @@
+column,original_value,corrected_value
+location,The Social Space (Kreta Ayer),Kreta Ayer
+location,The Social Space (Potong Pasir),Potong Pasir
+event_type,Stock In,GRN
+event_type,Stock Out,Inv Adjustment
+event_type,Stock Received,GRN
+event_type,Goods Received,GRN
+event_type,Location Transfer,Location Transfer
+event_type,Inventory Adjustment,Inv Adjustment
+event_type,Inv Adjustment,Inv Adjustment
+event_type,Recon,Inv Adjustment
+partner,Riau Candle,Riau Candles
+partner,Happiness Initiative,Happiness Initiative

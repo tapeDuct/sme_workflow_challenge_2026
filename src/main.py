@@ -11,8 +11,18 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from src.ai import assurance
+from src.combine import merge_sheets, get_unique_categories
+from src.comments import CommentManager
 from src.db import init_db, create_task, update_task, get_task, get_tasks
+from src.google_sheets import sheets_client
 from src.hitl import email_handler
+from src.ingestion import (
+    parse_file,
+    normalize_columns,
+    standardize_locations,
+    get_partner_list,
+    compute_file_hash,
+)
 from src.integrations import brave, apollo, zapier
 from src.models import (
     ApprovalRequest,
@@ -23,6 +33,7 @@ from src.models import (
     WorkflowTask,
     ExtractionResult,
 )
+from src.normalize import normalizer
 from src.services import extraction, verification, generation, metrics
 
 
@@ -191,6 +202,308 @@ async def email_reject(session_id: str, task_id: int, reason: str | None = None)
     email_handler.process_response(session_id, "reject", task_id)
     update_task(task_id, status=TaskStatus.rejected.value, human_notes=reason)
     return HTMLResponse("<h2>Task Rejected</h2><p>The task has been flagged for manual review.</p>")
+
+
+# ---------------------------------------------------------------------------
+# Stage 1: Ingestion & Normalization
+# ---------------------------------------------------------------------------
+
+class IngestResponse(BaseModel):
+    filename: str
+    source: str
+    rows: int
+    columns: int
+    column_names: list[str]
+    partners: list[str]
+    preview: list[dict[str, Any]]
+    corrections_summary: dict[str, Any] | None = None
+    file_hash: str
+    normalized: bool = False
+
+
+@app.post("/ingest", response_model=IngestResponse)
+async def ingest_file(file_path: str, source: str | None = None, apply_corrections: bool = False):
+    path = Path(file_path)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+
+    df = parse_file(path, source)
+    df = normalize_columns(df)
+    df = standardize_locations(df)
+
+    file_hash = compute_file_hash(path)
+
+    if apply_corrections:
+        normalizer.load_corrections("data/corrections/reference.csv")
+        df = normalizer.apply_global_corrections(df)
+
+    partners = get_partner_list(df)
+    preview = df.head(5).fillna("").to_dict(orient="records")
+
+    return IngestResponse(
+        filename=path.name,
+        source=df["source"].iloc[0] if "source" in df.columns else "unknown",
+        rows=len(df),
+        columns=len(df.columns),
+        column_names=list(df.columns),
+        partners=partners[:20],
+        preview=preview,
+        corrections_summary=normalizer.get_corrections_summary() if apply_corrections else None,
+        file_hash=file_hash,
+        normalized=True,
+    )
+
+
+@app.get("/ingest/partners")
+async def list_partners(file_path: str):
+    path = Path(file_path)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+
+    df = parse_file(path)
+    df = normalize_columns(df)
+    partners = get_partner_list(df)
+    return {"partners": partners, "count": len(partners)}
+
+
+@app.get("/ingest/partner-skus")
+async def partner_skus(file_path: str, partner: str):
+    path = Path(file_path)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+
+    df = parse_file(path)
+    df = normalize_columns(df)
+    if "partner" in df.columns and "sku" in df.columns:
+        partner_df = df[df["partner"] == partner]
+        skus = partner_df[["sku", "item_description"]].dropna().drop_duplicates().to_dict(orient="records")
+        return {"partner": partner, "sku_count": len(skus), "skus": skus}
+    return {"partner": partner, "sku_count": 0, "skus": []}
+
+
+@app.post("/ingest/corrections/load")
+async def load_corrections(file_path: str = "data/corrections/reference.csv"):
+    path = Path(file_path)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"Corrections file not found: {file_path}")
+
+    corrections = normalizer.load_corrections(path)
+    return {"corrections_loaded": len(corrections), "columns_covered": list(corrections.keys())}
+
+
+# ---------------------------------------------------------------------------
+# Stage 4: Google Sheets output
+# ---------------------------------------------------------------------------
+
+class CreateReportRequest(BaseModel):
+    spreadsheet_title: str
+    sheet_name: str = "Sheet1"
+    headers: list[str]
+    rows: list[list[Any]]
+
+
+@app.post("/sheets/create")
+async def create_report(req: CreateReportRequest):
+    result = sheets_client.create_spreadsheet(req.spreadsheet_title)
+    sheet_id = result["spreadsheet_id"]
+
+    data = [req.headers] + req.rows
+    cells = sheets_client.write_data(sheet_id, "A1", data, req.sheet_name)
+    sheets_client.format_header(sheet_id)
+
+    return {
+        "spreadsheet_id": sheet_id,
+        "url": result["url"],
+        "cells_written": cells,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Stage 2: Combine & Review
+# ---------------------------------------------------------------------------
+
+class CombineRequest(BaseModel):
+    file_paths: list[str]
+    corrections_reference: str = "data/corrections/reference.csv"
+
+
+@app.post("/pipeline/combine")
+async def combine_files(req: CombineRequest):
+    for path in req.file_paths:
+        if not Path(path).exists():
+            raise HTTPException(status_code=404, detail=f"File not found: {path}")
+
+    master = merge_sheets(req.file_paths)
+
+    normalizer.load_corrections(req.corrections_reference)
+    master = normalizer.apply_global_corrections(master)
+
+    categories = get_unique_categories(master)
+    preview = master.head(5).fillna("").to_dict(orient="records")
+
+    return {
+        "total_rows": len(master),
+        "total_columns": len(master.columns),
+        "column_names": list(master.columns),
+        "categories": categories,
+        "category_count": len(categories),
+        "corrections_applied": normalizer.get_corrections_summary(),
+        "preview": preview,
+    }
+
+
+@app.post("/pipeline/combine/write")
+async def combine_and_write(req: CombineRequest):
+    for path in req.file_paths:
+        if not Path(path).exists():
+            raise HTTPException(status_code=404, detail=f"File not found: {path}")
+
+    master = merge_sheets(req.file_paths)
+    normalizer.load_corrections(req.corrections_reference)
+    master = normalizer.apply_global_corrections(master)
+
+    result = sheets_client.create_spreadsheet("Master Table — The Social Space")
+    sheet_id = result["spreadsheet_id"]
+
+    headers = list(master.columns)
+    rows = master.fillna("").values.tolist()
+    data_rows = [[str(v) for v in row] for row in rows]
+
+    sheets_client.write_data(sheet_id, "A1", [headers] + data_rows, "Master")
+    sheets_client.format_header(sheet_id)
+
+    return {
+        "spreadsheet_id": sheet_id,
+        "url": result["url"],
+        "rows_written": len(data_rows),
+        "categories": get_unique_categories(master),
+    }
+
+
+class ReviewRequest(BaseModel):
+    spreadsheet_id: str
+    sheet_id: int = 0
+    batch_size: int = 20
+    review_columns: list[str] | None = None
+
+
+@app.post("/pipeline/review")
+async def review_master_table(req: ReviewRequest):
+    from src.review import reviewer
+
+    data = sheets_client.read_data(req.spreadsheet_id, "A1:ZZ1000")
+    if not data:
+        raise HTTPException(status_code=400, detail="No data found in spreadsheet")
+
+    headers = data[0]
+    rows_data = data[1:]
+
+    dict_rows = []
+    for row_data in rows_data:
+        row_dict = {}
+        for j, header in enumerate(headers):
+            row_dict[header] = row_data[j] if j < len(row_data) else ""
+        dict_rows.append(row_dict)
+
+    findings = await reviewer.review_batch(dict_rows[:req.batch_size], req.review_columns)
+
+    comment_mgr = CommentManager(sheets_client._get_service())
+
+    comments_added = 0
+    for flag in findings["flags"]:
+        row_idx = flag.get("row_index", 0)
+        col_name = flag.get("column_name", "")
+        col_idx = _find_column_index(headers, col_name)
+        if col_idx >= 0:
+            comment_mgr.add_ai_comment(
+                req.spreadsheet_id,
+                req.sheet_id,
+                row_idx + 1,
+                col_idx,
+                flag.get("issue", "Unknown issue"),
+                flag.get("context", ""),
+                col_name,
+                str(dict_rows[row_idx].get(col_name, "")) if row_idx < len(dict_rows) else "",
+            )
+            comments_added += 1
+
+    return {
+        "rows_reviewed": min(len(dict_rows), req.batch_size),
+        "auto_corrected": findings["auto_corrected"],
+        "issues_found": findings["issues_found"],
+        "comments_added": comments_added,
+        "flags": findings["flags"],
+    }
+
+
+@app.get("/pipeline/review/comments")
+async def get_review_comments(spreadsheet_id: str, sheet_id: int = 0):
+    comment_mgr = CommentManager(sheets_client._get_service())
+    comments = comment_mgr.get_comments(spreadsheet_id, sheet_id)
+    return {"comments": comments, "count": len(comments)}
+
+
+@app.post("/pipeline/reports/generate")
+async def generate_reports(spreadsheet_id: str, category_col: str = "item_category"):
+    from src.reports import generate_legacy_report, generate_recommended_report, get_partner_summary
+    from src.combine import group_by_category
+
+    data = sheets_client.read_data(spreadsheet_id, "A1:ZZ10000")
+    if not data:
+        raise HTTPException(status_code=400, detail="No data found")
+
+    import pandas as pd
+    headers = data[0]
+    rows = data[1:]
+    df = pd.DataFrame(rows, columns=headers)
+    df = df.replace("", pd.NA)
+
+    groups = group_by_category(df, category_col)
+    reports_created = []
+
+    for category, partner_df in list(groups.items())[:5]:
+        if not category or category in ("nan", "None", ""):
+            continue
+
+        legacy_headers, legacy_rows = generate_legacy_report(partner_df, str(category))
+        rec_headers, rec_rows = generate_recommended_report(partner_df, str(category))
+
+        result = sheets_client.create_spreadsheet(f"Report — {category}")
+
+        if legacy_headers and legacy_rows:
+            sheets_client.write_data(
+                result["spreadsheet_id"], "A1",
+                [legacy_headers] + legacy_rows,
+                "Legacy Report",
+            )
+            sheets_client.format_header(result["spreadsheet_id"])
+
+        if rec_headers and rec_rows:
+            sheets_client.write_data(
+                result["spreadsheet_id"], "A1",
+                [rec_headers] + rec_rows,
+                "Recommended Report",
+            )
+            sheets_client.format_header(result["spreadsheet_id"])
+
+        summary = get_partner_summary(partner_df, str(category))
+        reports_created.append({
+            "partner": str(category),
+            "url": result["url"],
+            "summary": summary,
+        })
+
+    return {
+        "reports_created": len(reports_created),
+        "reports": reports_created,
+    }
+
+
+def _find_column_index(headers: list[str], col_name: str) -> int:
+    for i, h in enumerate(headers):
+        if h == col_name or h.lower() == col_name.lower():
+            return i
+    return -1
 
 
 # ---------------------------------------------------------------------------
