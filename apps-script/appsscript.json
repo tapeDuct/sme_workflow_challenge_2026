@@ -9,12 +9,5 @@
     "https://www.googleapis.com/auth/script.scriptapp",
     "https://www.googleapis.com/auth/script.container.ui"
   ],
-  "runtimeVersion": "V8",
-  "addOns": {
-    "common": {
-      "name": "The Social Space — Workflow Automation",
-      "logoUrl": "",
-      "useLocaleFromApp": true
-    }
-  }
+  "runtimeVersion": "V8"
 }
