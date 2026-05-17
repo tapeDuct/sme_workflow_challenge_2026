@@ -8,10 +8,13 @@ This repo contains all implementations of the workflow across different approach
 
 | Folder | Approach | Status |
 |--------|----------|--------|
-| [`python_cloud/`](python_cloud/) | Python microservice (FastAPI + Qwen + Google Sheets) | Built | |
-| [`custom_agent/`](custom_agent/) | OpenCode AI agent | Built | |
-| [`apps_script/`](apps-script/) | Google Apps Script | Built | ['Live App'](https://docs.google.com/presentation/d/1oMc7ewMhYxxd94oQdxIJbT07Qvmchc9CsCEuCFLl1UY/edit?usp=sharing) |
-| [`web_app/`](web_app/) | Replit-hosted web application | Built | ['Live App'](https://data-wrangler-pro-tapeduct.replit.app) |
+| [`python_cloud/`](python_cloud/) | Python microservice (FastAPI + Qwen + Google Sheets) | Built |
+| [`custom_agent/`](custom_agent/) | OpenCode AI agent | Built |
+| [`apps_script/`](apps-script/) | Google Apps Script | Built |
+| [`web_app/`](web_app/) | Replit-hosted web application | Built | 
+ ['Live Apps Scrip App'](https://docs.google.com/presentation/d/1oMc7ewMhYxxd94oQdxIJbT07Qvmchc9CsCEuCFLl1UY/edit?usp=sharing)
+ ['Live WebApp'](https://data-wrangler-pro-tapeduct.replit.app)
+
 
 ## The Problem
 
