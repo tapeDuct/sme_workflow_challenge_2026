@@ -1,4 +1,4 @@
-# Apps Script — The Social Space Workflow
+# Apps Script — Document Merge / Consolidation Workflow
 
 ## Overview
 
