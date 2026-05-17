@@ -6,8 +6,8 @@ Automate Monthly Consignment Reporting.
 
 This repo contains all implementations of the workflow across different approaches:
 
-| Folder | Approach | Status |
-|--------|----------|--------|
+| Folder | Approach | Status ||
+|--------|----------|--------||
 | [`python_cloud/`](python_cloud/) | Python microservice (FastAPI + Qwen + Google Sheets) | Built ||
 | [`custom_agent/`](custom_agent/) | OpenCode AI agent | Built ||
 | [`apps_script/`](apps-script/) | Google Apps Script | Built | ['Live App'] (https://docs.google.com/presentation/d/1oMc7ewMhYxxd94oQdxIJbT07Qvmchc9CsCEuCFLl1UY/edit?usp=sharing) |
