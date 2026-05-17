@@ -16,7 +16,7 @@ function initSettingsTab(sheet) {
   sheet.clear();
   var headers = [
     ['Setting', 'Value', 'Description'],
-    ['AI Model', 'Gemini 2.0 Flash', 'Dropdown: Gemini, Qwen, OpenAI, Custom'],
+    ['AI Model', 'Gemini 2.5 Flash', 'Dropdown: Gemini, Qwen, OpenAI, Custom'],
     ['API Key', '', 'Starts with sk- or AIza... Saved to PropertiesService'],
     ['Confidence Threshold', '0.85', 'AI auto-corrects above this. Below → flag for human'],
     ['Batch Size', '25', 'Rows to review per batch (keep under 50)'],
@@ -39,7 +39,7 @@ function initSettingsTab(sheet) {
   // Dropdown for AI model
   var modelCell = sheet.getRange('B2');
   var rule = SpreadsheetApp.newDataValidation()
-    .requireValueInList(['Gemini 2.0 Flash', 'Qwen (Alibaba)', 'OpenAI', 'Custom'], true)
+    .requireValueInList(['Gemini 2.5 Flash', 'Qwen (Alibaba)', 'OpenAI', 'Custom'], true)
     .build();
   modelCell.setDataValidation(rule);
 
@@ -154,8 +154,8 @@ function getModelConfig() {
   var model = getSetting('AI_MODEL', 'B2');
 
   var configs = {
-    'Gemini 2.0 Flash': {
-      endpoint: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
+    'Gemini 2.5 Flash': {
+      endpoint: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
       buildHeaders: function(key) { return { 'x-goog-api-key': key }; },
       buildBody: function(prompt) {
         return JSON.stringify({
