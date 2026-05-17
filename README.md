@@ -28,10 +28,20 @@ An AI-powered workflow that:
 - Uses AI for data quality review with human-in-the-loop for ambiguous entries
 - Generates per-partner Google Sheets reports
 
-## Tech Stack (python_cloud)
+## Judging Criteria Coverage
+
+| Criterion (Weight) | Where We Address It |
+|--------------------|---------------------|
+| **Technical Execution** (25%)
+| **SME Impact** (25%)
+| **Cost Efficiency** (20%)
+| **Responsible AI** (10%)
+| **Presentation** (20%)
+
+## Tech Stack (across all 4 solutions)
 
 - Python 3.11, FastAPI
 - Qwen (Alibaba Cloud Model Studio)
-- Google Sheets API + Drive API (OAuth)
+- Google Sheets API + Drive API (OAuth) + Gemini
 - SQLite, Pandas
 - Docker, GitHub Actions CI
