@@ -2,20 +2,20 @@
 
 **Track 2: Save-a-Hire (Operational Efficiency & Task Automation)**
 
-The Social Space — Automate Monthly Consignment Reporting.
+Automate Monthly Consignment Reporting.
 
 This repo contains all implementations of the workflow across different approaches:
 
 | Folder | Approach | Status |
 |--------|----------|--------|
-| [`python_cloud/`](python_cloud/) | Python microservice (FastAPI + Qwen + Google Sheets) | Building |
-| [`custom_agent/`](custom_agent/) | OpenCode AI agent | Planned |
-| [`apps_script/`](apps_script/) | Google Apps Script | Planned |
-| [`web_app/`](web_app/) | Replit-hosted web application | Planned |
+| [`python_cloud/`](python_cloud/) | Python microservice (FastAPI + Qwen + Google Sheets) | Built |
+| [`custom_agent/`](custom_agent/) | OpenCode AI agent | Built |
+| [`apps_script/`](apps_script/) | Google Apps Script | Built | https://docs.google.com/presentation/d/1oMc7ewMhYxxd94oQdxIJbT07Qvmchc9CsCEuCFLl1UY/edit?usp=sharing 
+| [`web_app/`](web_app/) | Replit-hosted web application | Built | https://data-wrangler-pro-tapeduct.replit.app
 
 ## The Problem
 
-The Social Space, a Singapore social enterprise with 50+ consignment partners, spends 1.5 weeks per month manually generating per-partner sales and inventory reports from 3 disconnected data sources (POS, online store, corporate orders). Reports are error-prone and late.
+A Singapore social enterprise with 50+ consignment partners, spends 1.5 weeks per month manually generating per-partner sales and inventory reports from 3 disconnected data sources (POS, online store, corporate orders). Reports are error-prone and late.
 
 ## The Solution
 
