@@ -1,24 +1,8 @@
 # Echelon Singapore 2026 — SME Workflow Automation
 
-**Track 2: Save-a-Hire (Operational Efficiency & Task Automation)**
+**Track 2: Save-a-Hire (Operational Efficiency & Task Automation) - Python Cloud Solution**
 
 A production-ready AI workflow that minimizes manual labor, optimizes SME efficiency, and keeps humans in the loop for critical decisions.
-
----
-
-## Problem
-
-SMEs lose 15+ hours/week on repetitive data work: extracting info from invoices, entering orders from WhatsApp, verifying supplier documents. This is a scaling bottleneck — you either hire more people or drown in paperwork.
-
-## Solution
-
-An AI-powered workflow that:
-- **Extracts** structured data from documents (PDFs, images, text, messages)
-- **Triages** by confidence: high-confidence auto-completes, low-confidence gets human review via email
-- **Generates** structured outputs (orders, DB entries, reports)
-- **Tracks** time saved, cost per task, and automation rates
-
-**Cost: ~$0.03/task vs. $0.50+/task manually.** 80% of tasks auto-complete.
 
 ---
 
@@ -52,8 +36,6 @@ docker compose up
 | **Output** | Structured JSON → DB, orders, reports, Zapier triggers |
 | **Metrics** | Live dashboard: tasks, time saved, cost breakdown |
 
-Full diagram: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-
 ---
 
 ## API Endpoints
@@ -72,18 +54,6 @@ Full diagram: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 | `POST` | `/integrations/zapier` | Zapier webhook trigger |
 
 Full docs at `/docs` when running.
-
----
-
-## Judging Criteria Coverage
-
-| Criterion (Weight) | Where We Address It |
-|--------------------|---------------------|
-| **Technical Execution** (25%) | FastAPI app, CI pipeline, Docker, full test suite |
-| **SME Impact** (25%) | Quantified savings: $150/mo vs. $2,500+ headcount, 15 hrs/wk saved |
-| **Cost Efficiency** (20%) | [`docs/COST.md`](docs/COST.md) — per-task, monthly, and scale pricing |
-| **Responsible AI** (10%) | [`docs/AI_SAFETY.md`](docs/AI_SAFETY.md) — PII handling, explainability, human oversight |
-| **Presentation** (20%) | [`docs/DEMO.md`](docs/DEMO.md) — 5-min walkthrough script |
 
 ---
 
