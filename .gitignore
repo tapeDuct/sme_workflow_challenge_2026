@@ -2,10 +2,10 @@ __pycache__/
 *.pyc
 .env
 .DS_Store
-data/*.db
-data/google-token.json
-data/google-credentials.json
-data/test_csvs/
+*.db
+google-token.json
+google-credentials.json
+test_csvs/
 *.bak
 data/output/*
 !data/output/.gitkeep

@@ -6,7 +6,7 @@ PIP = $(VENV)/bin/pip
 UVICORN = $(VENV)/bin/uvicorn
 
 setup:
-	python3 -m venv $(VENV)
+	/usr/bin/python3 -m venv $(VENV)
 	$(PIP) install -r requirements.txt
 	cp -n .env.example .env || true
 	mkdir -p data/output

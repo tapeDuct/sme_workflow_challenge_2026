@@ -1,7 +1,10 @@
 import time
 from typing import Any
 
-import pymupdf
+try:
+    import pymupdf
+except ImportError:
+    pymupdf = None
 
 from src.ai import ai, assurance
 from src.models import ExtractionResult, MetricsSnapshot, TaskStatus, WorkflowTask
@@ -10,6 +13,8 @@ from src.models import ExtractionResult, MetricsSnapshot, TaskStatus, WorkflowTa
 class ExtractionService:
     async def extract_from_pdf(self, file_path: str, schema: type, prompt: str) -> ExtractionResult:
         try:
+            if pymupdf is None:
+                return ExtractionResult(success=False, data={}, confidence=0.0, warnings=["pymupdf not installed"])
             doc = pymupdf.open(file_path)
             text = "\n".join(page.get_text() for page in doc)
             doc.close()
