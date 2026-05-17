@@ -1,5 +1,7 @@
 # Echelon Singapore 2026 — SME Workflow Challenge
 
+**[Overview Slides](https://docs.google.com/presentation/d/1oMc7ewMhYxxd94oQdxIJbT07Qvmchc9CsCEuCFLl1UY/edit?usp=sharing)**
+
 **Track 2: Save-a-Hire (Operational Efficiency & Task Automation)**
 
 Automate Monthly Consignment Reporting.
@@ -32,11 +34,11 @@ An AI-powered workflow that:
 
 | Criterion (Weight) | Where We Address It |
 |--------------------|---------------------|
-| **Technical Execution** (25%)
-| **SME Impact** (25%)
-| **Cost Efficiency** (20%)
-| **Responsible AI** (10%)
-| **Presentation** (20%)
+| **Technical Execution** (25%) | Range of solutions fitting to different technical needs | 
+| **SME Impact** (25%) | All solutions eliminate the need for manual checking and verification | 
+| **Cost Efficiency** (20%) | All solutions are highly cost efficient with the recommended solution being effectively 0-cost | 
+| **Responsible AI** (10%) | All solutions require human verification and do not commit anything without human involvement | 
+| **Presentation** (20%) | Presented in github, slides and video | 
 
 ## Tech Stack (across all 4 solutions)
 
