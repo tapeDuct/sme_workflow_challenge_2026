@@ -1,0 +1,6 @@
+openai==1.51.0
+pandas==2.3.3
+odfpy==1.4.1
+pymupdf==1.24.10
+python-dotenv==1.0.1
+eval-type-backport==0.3.1

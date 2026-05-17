@@ -1,0 +1,23 @@
+{
+  "expected_columns": [
+    "location",
+    "sku",
+    "item_description",
+    "item_category",
+    "partner",
+    "quantity",
+    "sales_volume",
+    "revenue",
+    "unit_price",
+    "cost_price"
+  ],
+  "location_values": ["Kreta Ayer", "Potong Pasir", "Online"],
+  "partner_column_aliases": ["item_category", "Item category", "partner", "Item supplier (Partner)"],
+  "numeric_columns": ["quantity", "sales_volume", "revenue", "unit_price", "cost_price"],
+  "required_columns": ["location", "item_category", "item_description"],
+  "flag_values": {
+    "item_category": ["无", "nothing", "others", "hidden items", "-", ""],
+    "revenue": ["< 0", "non-numeric"],
+    "quantity": ["< 0", "non-numeric"]
+  }
+}
