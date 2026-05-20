@@ -12,6 +12,12 @@
  */
 function runAIReview() {
   setStatus('Running AI review...', STATUS.REVIEWING);
+  // Status values for AI Review Status column
+  var STATUS_CLEARED    = 'Cleared';
+  var STATUS_AUTOFIXED  = 'Auto-fixed';
+  var STATUS_NEEDSRVW   = 'Needs Review';
+  var STATUS_PENDING    = 'Pending';
+
   var startTime = new Date().getTime();
   logEvent('review_start', 'Starting two-pass AI review');
 
@@ -130,6 +136,7 @@ function runAIReview() {
         var findings = parseFindings(aiResponse);
 
         var rowFlags = 0;
+        var rowAutoFixes = 0;
         findings.forEach(function(finding) {
           var colIdx = headerIndex(headers, finding.column) + 1;
           if (colIdx <= 0 || finding.action === 'ok') return;
@@ -138,6 +145,7 @@ function runAIReview() {
             if (finding.new_value) {
               master.getRange(rowNum, colIdx).setValue(finding.new_value);
               autoFixed++;
+              rowAutoFixes++;
             }
             addReviewLogEntry(rowNum, finding.column, finding.issue, finding.confidence, 'auto-fix');
           } else {
@@ -149,13 +157,41 @@ function runAIReview() {
           }
         });
 
-        var rowStatus = rowFlags > 0 ? 'needs_review' : 'reviewed_ok';
+        // Set status based on combined pre-filter + AI results
+        var rowStatus;
+        if (rowFlags > 0) {
+          rowStatus = STATUS_NEEDSRV;
+        } else if (rowAutoFixes > 0) {
+          rowStatus = STATUS_AUTOFIXED;
+        } else {
+          rowStatus = STATUS_CLEARED;
+        }
         if (statusCol > 0) master.getRange(rowNum, statusCol).setValue(rowStatus);
         zoomReviewed++;
       }
 
       var pct = Math.round((b + batchRows.length) / flaggedRows.length * 100);
       setStatus('Zoom review: ' + pct + '% (' + zoomReviewed + '/' + flaggedRows.length + ' rows)', STATUS.REVIEWING);
+    }
+
+    // Set Cleared status on all remaining Pending rows (they were never flagged)
+    if (statusCol > 0) {
+      var finalStatuses = master.getRange(2, statusCol, master.getLastRow() - 1, 1).getValues();
+      for (var fs = 0; fs < finalStatuses.length; fs++) {
+        if (finalStatuses[fs][0] === 'Pending') {
+          master.getRange(fs + 2, statusCol).setValue(STATUS_CLEARED);
+        }
+      }
+    }
+
+    // Insert checkboxes ONLY on rows flagged for review
+    if (verifyCol > 0 && flaggedCount > 0) {
+      var allStatuses = master.getRange(2, statusCol, master.getLastRow() - 1, 1).getValues();
+      for (var rs = 0; rs < allStatuses.length; rs++) {
+        if (allStatuses[rs][0] === STATUS_NEEDSRV) {
+          master.getRange(rs + 2, verifyCol).insertCheckboxes();
+        }
+      }
     }
 
     var elapsed = ((new Date().getTime() - startTime) / 1000).toFixed(1);
@@ -171,9 +207,11 @@ function runAIReview() {
       'AI Review complete (' + elapsed + 's).\n\n' +
       'Pass 1 scanned all ' + totalRows + ' rows\n' +
       'Pass 2 zoom-reviewed ' + zoomReviewed + ' flagged rows\n\n' +
+      'Cleared: ' + (zoomReviewed - (flaggedCount + (autoFixed - preFixCount))) + ' rows\n' +
       'Auto-fixed: ' + autoFixed + '\n' +
-      'Flagged for you: ' + flaggedCount + '\n\n' +
-      'Review flagged cells (marked with notes). Fix them, then tick the "Human Verified" checkbox.'
+      'Needs Review: ' + flaggedCount + ' (checkboxes added)\n\n' +
+      'Review flagged cells (marked with notes). Fix them, then tick the "Human Verified" checkbox.\n' +
+      'Cells already cleared or auto-fixed do NOT need verification.'
     );
 
   } catch (e) {
@@ -197,53 +235,46 @@ function rerunAIReview() {
 
 /**
  * Quick heuristic checks on a single row. No API calls.
+ * Focuses on content issues: typos, similar names, outliers, logic errors.
+ * Empty cells are pre-highlighted in ingestion — not re-checked here.
  * Returns [{column, corrected, issue}].
  */
 function runHeuristics(row, headers) {
   var fixes = [];
 
-  // Helper: get value of column by name
   function val(name) {
     var idx = headerIndex(headers, name);
     return idx >= 0 ? (row[idx] ? row[idx].toString().trim() : '') : '';
   }
 
-  // Location standardization
-  var locationCandidates = ['Sales outlets', 'location'];
-  for (var l = 0; l < locationCandidates.length; l++) {
-    var locCol = locationCandidates[l];
-    var locVal = val(locCol);
-    if (!locVal) continue;
+  // Fuzzy name check against known valid values
+  var partnerCols = ['Item supplier (Partner)', 'Item category', 'item_category', 'partner'];
+  partnerCols.forEach(function(pc) {
+    var pv = val(pc);
+    if (!pv) return;
 
-    var locMap = {
-      'The Social Space (Kreta Ayer)': 'Kreta Ayer',
-      'The Social Space (Potong Pasir)': 'Potong Pasir',
-      'KRETA AYER': 'Kreta Ayer',
-      'POTONG PASIR': 'Potong Pasir',
-      'ONLINE STORE': 'Online',
-    };
-    if (locMap[locVal]) {
-      fixes.push({ column: locCol, corrected: locMap[locVal], issue: 'Standardized location: "' + locVal + '" → "' + locMap[locVal] + '"' });
-    }
-  }
-
-  // Empty required fields
-  var requiredFields = ['Item description', 'item_description', 'Item Number', 'sku'];
-  requiredFields.forEach(function(f) {
-    var v = val(f);
-    if (v === '' || v === '-' || v === 'Item without S/No.') {
-      fixes.push({ column: f, corrected: '', issue: 'Empty or placeholder value in "' + f + '"' });
+    // Check Knowledge tab for close matches (e.g., 'Riau Candle' → 'Riau Candles')
+    var knowledge = loadKnowledgeTab();
+    if (knowledge[pc]) {
+      // Check if value is close to a known correction
+      var knownCorrected = knowledge[pc][pv];
+      if (knownCorrected && knownCorrected !== pv) {
+        fixes.push({ column: pc, corrected: knownCorrected,
+          issue: 'Corrected partner name: "' + pv + '" → "' + knownCorrected + '" — from Knowledge tab' });
+        return;
+      }
     }
   });
 
   // Negative quantities
-  var qtyCols = ['Sales volume', 'Current Inventory', 'Sales Volume', 'Current Inventory'];
+  var qtyCols = ['Sales volume', 'Current Inventory'];
   qtyCols.forEach(function(qc) {
     var qv = val(qc);
     if (!qv) return;
     var num = parseFloat(qv);
     if (!isNaN(num) && num < 0) {
-      fixes.push({ column: qc, corrected: String(Math.abs(num)), issue: 'Negative quantity corrected: ' + qv + ' → ' + Math.abs(num) });
+      fixes.push({ column: qc, corrected: String(Math.abs(num)),
+        issue: 'Negative quantity corrected: ' + qv + ' → ' + Math.abs(num) });
     }
   });
 
@@ -253,7 +284,8 @@ function runHeuristics(row, headers) {
     var cv = val(cc);
     if (!cv) return;
     if (['无', 'nothing', 'others', '-', 'hidden items'].indexOf(cv.toLowerCase()) >= 0) {
-      fixes.push({ column: cc, corrected: cv, issue: 'Unassigned category: "' + cv + '" — needs partner assignment' });
+      fixes.push({ column: cc, corrected: cv,
+        issue: 'Unassigned category: "' + cv + '" — needs partner assignment' });
     }
   });
 
@@ -328,20 +360,27 @@ function buildScanPrompt(summary, totalRows, reviewCols) {
     'I am sending you a STATISTICAL SUMMARY of ' + totalRows + ' rows of data.',
     'DO NOT review individual rows. Find column-level patterns and problems.',
     '',
-    'Dataset context:',
-    '- Item categories represent consignment partners (50+ unique partners)',
-    '- Locations: Kreta Ayer, Potong Pasir, Online',
-    '- Sales outlets sometimes contain raw location names needing standardization',
-    '- Revenue and Sales columns should be positive numbers',
-    '- Some categories are placeholders (无, nothing, -, others) — these need partner assignment',
+    'IMPORTANT: DO NOT flag empty or missing cells — those are pre-highlighted.',
+    'Focus ONLY on:',
+    '  - Similar-sounding names that might be typos (e.g., "Riau Candle" vs "Riau Candles")',
+    '  - Mathematical errors or illogical values (revenue ≠ units × price)',
+    '  - Clearly wrong quantities or outliers',
+    '  - Misspelled locations, categories, or partner names',
+    '  - Values that look like they belong in a different column',
+    '  - Suspicious patterns (repeated values, impossible numbers)',
     '',
-    'Analyze the summary below and return a JSON object:',
+    'Dataset context:',
+    '- Item categories represent consignment partners (39+ unique partners)',
+    '- Locations: Kreta Ayer, Potong Pasir, Online',
+    '- Revenue and Sales columns should be positive numbers',
+    '',
+    'Respond ONLY with a JSON object:',
     '{',
     '  "column_issues": [',
     '    { "column": "column_name", "issue": "description", "fix_pattern": "what to replace with" }',
     '  ],',
     '  "suspicious_row_ranges": [',
-    '    { "from": row_number, "to": row_number, "reason": "why these rows are suspicious", "column": "column_name" }',
+    '    { "from": row_number, "to": row_number, "reason": "why", "column": "affected_column" }',
     '  ]',
     '}',
     '',
@@ -405,15 +444,16 @@ function fallbackSampling(totalRows) {
 function buildRowPrompt(rowObj, reviewCols) {
   var rowJson = {};
   reviewCols.forEach(function(col) {
-    if (rowObj[col] !== undefined) {
+    if (rowObj[col] !== undefined && rowObj[col] !== null && rowObj[col] !== '') {
       rowJson[col] = rowObj[col];
     }
   });
 
   return [
-    'You are a data quality reviewer. Review this row and check for:',
-    'inconsistent naming, typos, outlier values, missing partner attribution,',
-    'suspicious price/revenue ratios, or empty required fields.',
+    'You are a data quality reviewer. Review this row for CONTENT issues only.',
+    'DO NOT flag empty or missing cells.',
+    'Check for: typos, similar-sounding names, mathematical inconsistency, illogical values,',
+    'outlier quantities, misspelled locations/partners, values in wrong columns.',
     '',
     'Respond ONLY with a JSON array:',
     '[{ "column": "col", "action": "fix"|"flag"|"ok", "new_value": "or null", "issue": "...", "confidence": 0.9, "context": "..." }]',
@@ -489,12 +529,35 @@ function buildCommentText(finding) {
 }
 
 /**
- * Adds an entry to the Review Log tab.
+ * Adds an entry to the Review Log tab with a hyperlink to the affected cell.
  */
 function addReviewLogEntry(rowNum, column, issue, confidence, action) {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(TAB_REVIEW_LOG);
   if (!sheet) return;
-  sheet.appendRow([rowNum, column, issue, confidence, action, new Date()]);
+
+  // Build hyperlink to the specific cell in the Master tab
+  var master = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(TAB_MASTER);
+  var masterGid = master ? master.getSheetId() : 0;
+  var headers = master ? master.getRange(1, 1, 1, master.getLastColumn()).getValues()[0] : [];
+  var colIdx = headerIndex(headers, column) + 1;
+  var colLetter = colIdx > 0 ? columnIndexToLetter(colIdx) : 'A';
+  var cellLink = '#gid=' + masterGid + '&range=' + colLetter + rowNum;
+
+  var linkFormula = '=HYPERLINK("' + cellLink + '", "Row ' + rowNum + ', ' + colLetter + '")';
+  sheet.appendRow([rowNum, column, issue, confidence, action, linkFormula, new Date()]);
+}
+
+/**
+ * Convert 1-based column index to letter (1→A, 27→AA).
+ */
+function columnIndexToLetter(index) {
+  var letter = '';
+  while (index > 0) {
+    var rem = (index - 1) % 26;
+    letter = String.fromCharCode(65 + rem) + letter;
+    index = Math.floor((index - rem) / 26);
+  }
+  return letter;
 }
 
 /**
